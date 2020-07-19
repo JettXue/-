@@ -205,8 +205,8 @@ include /path/server-端口号.conf
 
 #### 两种持久化方式：
 
-1. snapshotting（**快照 rdb**）：默认方式，将数据存放到文件中。默认文件 dump.rdb，可配置 Redis 在 n 秒内如果超过 m 个 key 被修改，就自动保存。save 300 10：300 秒内超过 10 个key被修改，就快照保存
-2. Append-only file（缩写 **AOF**）：读写操作存放到文件
+1. snapshotting（**快照 rdb**）：默认方式，将数据存放到文件中。默认文件 dump.rdb，可配置 Redis 在 n 秒内如果超过 m 个 key 被修改，就自动保存。save 300 10：300 秒内超过 10 个key被修改，就快照保存。实际操作过程是 **fork 一个子进程**，先将数据集写入临时文件，写入成功后，在替换之前的文件，用二进制压缩存储。适合**冷备份**，**恢复快**
+2. Append-only file（缩写 **AOF**）：以日志的形式记录服务器所处理的每一个**写、删除操作**存放到文件
 
 快照方式由于有时间间隔，如果在此之前 down 机，则最后的几个操作将丢失aof 比快照有更好的持久性，每个写命令都通过 write 函数写到文件中
 
@@ -231,6 +231,10 @@ appendfsync everysec //每秒钟写入磁盘一次，在性能和持久化方面
   **auto-aof-rewrite-percentage**  percentage
 
 ## redis 事务
+
+对于 Redis 是单线程为何还需要事务，可以看这个[博客][1]
+
+[1]: https://blog.csdn.net/qq_35102066/article/details/103207283	"title"
 
 使用 **multi 开启事务**
 使用 **exec 执行事务**
@@ -436,13 +440,11 @@ slaveof <masterip> <masterport>
 redis-server -slaveof <masterip> <masterport>
 ```
 
-方式三：服务器配置
+**方式三：服务器配置**
 
 ```
 slaveof <masterip> <masterport>
 ```
-
-
 
 #### 数据同步阶段工作流程
 
@@ -452,23 +454,39 @@ slaveof <masterip> <masterport>
 4. 请求部分同步数据
 5. 恢复部分同步数据
 
+##### 全量复制
+
+| master                                    | slave                                      |
+| :---------------------------------------- | ------------------------------------------ |
+|                                           | ① 发送指令：psync2                         |
+| ② 执行 bgsave                             |                                            |
+| ③ 第一个 slave 连接时，创建命令缓冲区     |                                            |
+| ④ 生成 rdb 文件，通过 socket 发送给 slave |                                            |
+|                                           | ⑤ 接收 rdb，清空数据，执行 rdb文件恢复过程 |
+
+##### 部分复制
+
+| master               | slave                                   |
+| -------------------- | --------------------------------------- |
+|                      | ⑥ 发送命令告知 rdb 恢复已经完成         |
+| ⑦ 发送复制缓冲区信息 |                                         |
+|                      | ⑧ 接收信息，执行 bgrewriteaof，恢复数据 |
+
+**关键词**：发送同步--> bgsave --> 创建命令缓存区 --> 生成 rdb --> slave 恢复 rdb --> 发送复制缓存区 --> 执行 bgrewrite
+
 ![Image](.\image\Redis 学习总结\rdb数据同步.png)
 
-#### ==复制缓存区设置大小合理==
+##### 复制缓存区设置大小合理
 
 ```
 repl-backlog-size
 ```
 
-#### 设置大小推荐：
+##### 设置大小推荐
 
 1. master 到 slave 重连平均时长 second
 2. master 平均每秒写命令数据总量 write-size-per-second
 3. 最优空间 = 2 * second * write-size-per-second
-
-#### 命令传播阶段
-
-服务器运行 ID（runid）进行身份认证
 
 #### 复制缓冲区工作原理
 
@@ -491,10 +509,44 @@ repl-backlog-size
 
 ![Image](.\image\Redis 学习总结\主从复制流程.png)
 
-![Image](.\image\Redis 学习总结\主从复制（完整）.png)
-
 psync2
 replconf ack offset
+
+#### 命令传播阶段
+
+出现断网现象
+
+- 网络闪断闪连			忽略
+- 短时间网络中断		**部分复制**
+- 长时间网络中断		全量复制
+
+核心要素
+
+- 服务器运行 ID（runid）进行**身份认证**
+- master 的复制缓存区
+- 主从服务器的复制偏移量
+
+##### 心跳机制
+
+进入命令传播阶段，master 与 slave 间需要进行信息交换，使用心跳机制进行维护，实现双方保持在线
+
+master 心跳：
+
+- 指令： `PING`
+- 周期：由 `repl-ping-slave-period` 决定，默认 10 秒
+- 作用：判断 slave 是否在线
+- 查询： `info replication` ，获取 slave 最后一次连接时间间隔
+
+slave 心跳：
+
+- 指令：`replconf ack {offset}`
+- 周期：1 秒
+- 作用1：汇报 slave 自己的复制偏移量，获取最新的数据变更指令
+- 作用2：判断 master 是否在线
+
+### 主从复制完整流程图
+
+![Image](.\image\Redis 学习总结\主从复制（完整）.png)
 
 ### 常见问题
 
@@ -555,7 +607,7 @@ replconf ack offset
     - 维护数据传输
 - 常见问题
 
-## 哨兵模式
+## 哨兵模式（sentinel）
 
 ---
 
@@ -589,11 +641,22 @@ replconf ack offset
   - 检查 master 和 slave
 - 通知
   - 向其他（哨兵，客户端）发送通知
-- 自动故障转移
+- **自动故障转移**
   1. 断开 master 与 slave 连接
   2. 选取一个 slave作为 master
   3. 将 slave 连接到新的 master
   4. 通知客户端新的服务器地址
+
+#### 哨兵模式下的连接
+
+哨兵模式下，客户端会保持两种连接：与哨兵的连接，与 master 的连接。数据操作通过 master，master 下线则通过哨兵再获取到 master 的最新地址。
+
+连接流程
+
+1. 连接哨兵，根据 master 的名称获取 master 的 ip 和 port
+2. 通过 ip 和 port 连接 master
+
+jedis 中提供了 哨兵模式的客户端连接池类 `JedisSentinelPool`，运行过程中，客户端会保持与哨兵和 master 的连接。
 
 #### 配置文件
 
@@ -627,11 +690,37 @@ sentinel failover-timeout mymaster 180000
 
 #### 阶段二：通知阶段
 
+维护信息阶段
+
 ![Image](.\image\Redis 学习总结\哨兵阶段二：通知阶段.png)
 
 #### 阶段三：故障转移阶段
 
 ![Image](.\image\Redis 学习总结\哨兵阶段三：故障转移阶段.png)
+
+主观下线：s_down
+客观下线：o_down
+
+#### 选举-投票过程
+
+##### 选举主 sentinel
+
+通过投票方式，选出合适的 sentinel 作为主 sentinel
+
+##### sentinel 挑选 master
+
+- 去掉不在线的
+- 去掉相应慢的
+- 去掉与原 master 断开时间久的
+- 优先原则
+  - 优先级
+  - offset
+  - runid
+
+##### sentinel 发送指令
+
+1. 向新的 master 发送 `slave of no one`
+2. 向其他 slave 发送 `slave of <新 master ip 端口>`
 
 #### 总结
 
@@ -645,7 +734,7 @@ sentinel failover-timeout mymaster 180000
   - 优选新 master
   - 新 master 上任，其他 slave 切换 master，原 master 作为 slave 故障恢复后连接
 
-## 集群
+## 使用 cluster 创建集群
 
 ---
 
@@ -659,25 +748,47 @@ sentinel failover-timeout mymaster 180000
 ![Image](.\image\Redis 学习总结\Redis数据存储设计.png)
 
 - 通过算法得到**数据应该存储的位置**
-- 将所有的存储空间分割成若干份（16384份），每台主机保存一部分
+- 将所有的存储空间分割成若干**槽**（16384份），每台主机保存一部分
   每份代表一个存储空间（不是 key）
 - 将 key 按照计算出的结果放到对应存储空间
 
 **引出的问题：**
 		增加或者有服务器宕机，怎么办
 
+每台机器分出一部分槽给新机器
+
 #### 集群内部通讯设计
 
-![Image](E:\mdnote\image\集群内部通讯设计.png)
+![Image](.\image\Redis 学习总结\集群内部通讯设计.png)
 
 - 各个数据库相互通信，保存各个库中槽的编号数据
 - 一次命中，直接返回
 - 一次未命中，返回在其他库中的具体位置
 - ==最多两次即可命中==
 
-## 企业级解决方案
+#### cluster 集群搭建
 
----
+使用 cluster 后，使用下面命令
+
+```
+redis-cli -c -p port
+```
+
+来进行集群中的操作，对于 set 位置不在这个服务上的，会自动重定向（redirecte）到相应的位置。
+
+#### 主从下线与主从切换
+
+
+
+## 集群总结
+
+**主从方式（master-slave）**：基本集群，**主备切换，数据同步**
+
+**哨兵模式（sentinel）**：访问量稍大时使用，解决**高可用（HA）**问题，选举机制
+
+**cluster 集群**：数据量达到很大时，rdb 的时间过长，fork 操作很慢，此时需要考虑数据分片。
+
+# 企业级解决方案
 
 #### 缓存雪崩
 
@@ -748,9 +859,9 @@ sentinel failover-timeout mymaster 180000
    临时启动防灾业务 key，对 key 进行业务层传输加密服务，设定校验程序   
    例如每天分配60个加密串，挑2到3个，混到页面数据 id 中，发现访问 key 不满足规则，驳回访问
 
-## 杂项
+# 杂项
 
----
+##### xxx | grep -v    #忽略
 
 ##### 设置端口开放
 
