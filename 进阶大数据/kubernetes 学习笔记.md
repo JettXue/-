@@ -16,11 +16,11 @@
 * 自动化：通过 Ansible 的 playbook 进行集群的安装和生命周期管理
 * 服务：大量事先创建好的常用应用模板
 #### kubernetes 相关网站
-1. https://kubernetes.io/
-2. https://github.com/kubernetes
-3. https://zhuanlan.zhihu.com/p/30355957
-4. https://www.infoq.cn/article/U2a_7ekuvhmb7dSNp27V
-5. https://github.com/kubernetes-retired/kubeadm-dind-cluster
+1. [kubernetes 官网](https://kubernetes.io/)
+2. [kubernetes github](https://github.com/kubernetes)
+3. [Borg: Google 内部的大型集群管理系统](https://zhuanlan.zhihu.com/p/30355957)
+4. [Kubernetes 五周年回顾与展望](https://www.infoq.cn/article/U2a_7ekuvhmb7dSNp27V)
+5. [kubeadm-dind-cluster](https://github.com/kubernetes-retired/kubeadm-dind-cluster)
 #### kubernetes 架构
 可以看这个地址 https://www.shiyanlou.com/courses/1457/learning/?id=15764
 用户命令行和 UI 界面通过 API 与 k8s master 节点通信，k8s master 再与相关 node 进行通信
@@ -41,14 +41,55 @@ node 节点是运行节点，主要用于运行管理业务的容器，组件如
 * CSI(Container Storage Interface)：容器存储接口，提供存储资源。
 #### k8s 对象和核心概念
 ##### API 对象
-k8s 中大部分概念都可看做是一种资源对象，通过 *kubectl* 命令行工具对其进行增删改查等操作病并存在 Etcd 中。
+k8s 中大部分概念都可看做是一种资源对象，通过 **kubectl** 命令行工具对其进行增删改查等操作病并存在 Etcd 中。
 一个 API 对象在 Etcd 中的完整资源路径是由：Group(API 组)、Version(API 版本) 和 Resource(API 资源类型) 构成。
 每个 API 对象有 3 大类属性：
+
 * metadata：元数据。用来标识 API 对象，每个对象都至少有 3 个元数据：namespace、name 和 uid，还可以使用标签 labels 标识和匹配不同的对象。
 * spec：规范。描述用户期望集群中的分布式系统达到的理想状态。
 * status：状态。描述系统当前达到的状态。在任何时候，Kubernetes 会管理对象使它的实际状态和期望状态相一致。
 ##### Pod
 Pod 是 k8s 中最重要的核心概念，其他的对象都是在管理、暴露 Pod 或是被 Pod 使用
+
+##### Label
+
+一个 Label 是一个 key=value 的键值对，用户可以自定义 key 和 value。通过标签可以对资源进行多维度管理。
+
+##### ReplicationController
+
+副本控制器，简写 RC，RC 是 k8s 最开始用来保证集群中的 Pod 高可用的资源对象。更多的已经被 RS 取代。
+
+##### ReplicaSet
+
+副本集，简写 RS，RS 是 RC 的替代者，支持更多的应用类型。RS 一般不单独使用，<u>而是作为 Deployment 的期望状态来使用</u>。
+
+##### Deployment
+
+部署，用来描述应用的运行状态，包括运行多少个 Pod 副本，每个 Pod 包含哪些容器，每个容器运行哪个镜像等。
+
+##### Service
+
+服务，通过 Deployment 我们能够完成应用部署，但 <u>Deployment 的 Pod 可能有多个，而这些 Pod 所在的 Node 并不固定，无法使用固定的 IP 和端口去访问</u>，如何访问应用提供的服务呢。k8s 使用 Service 来解决这个问题，一个 Service 对应一个应用，代表该应用提供的服务。每个 Service 有一个集群内部的虚拟 IP，客户端通过该 IP 来请求应用服务时，**kube-proxy** 会<u>将请求转发给 Deployment 中的某个 Pod</u>。Pod 位置发生变化，kube-proxy 也能及时感知到，解决了单个 Pod 服务的注册和发现问题，同时也实现了负载均衡。
+
+##### Job
+
+任务，Deployment 代表的是长期运行的应用服务，而短暂运行的应用（比如定时任务）就要用 Job 来表示。
+
+##### Namespace
+
+命名空间，为同一个 k8s 集群里的资源对象提供了虚拟的隔离空间，避免了命名冲突。
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

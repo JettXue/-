@@ -76,13 +76,39 @@ s"My name is ${myname}" // String interpolation
 
 #### 函数
 
-`def functionName( param: ParamType): Return Type = {`
-	`function body: expressions`
-`}`
+```scala
+def functionName( param: ParamType): Return Type = {
+	function body: expressions
+}
+```
+
+#### if 与 for
+
+```scala
+for{
+    
+} xxx
+```
+
+#### try 与 match
 
 
 
 ## 高阶函数
+
+1. 函数作为参数
+2. 函数作为返回值
+
+#### 匿名函数
+
+匿名函数表面上是没有命名的函数，本质上是一个字面量（常量），即不是变量，没有一个变量名与之对应
+
+scala 中，匿名函数的定义格式：
+				`(形参列表) => {函数体}`
+
+#### 柯里化
+
+
 
 
 
