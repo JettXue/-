@@ -306,8 +306,41 @@ try {
 #### send() 方法
 
 - **Fire-and-forget**（发送即忘记）：此方法用来发送消息到 broker，<u>不关注消息是否成功到达</u>。大部分情况下，消息会成功到达 broker，因为 Kafka 是高可用的，并且 producer 会<u>自动重试发送</u>。但是，还是会有消息丢失的情况；本实验用的就是这种方法。
-- **Synchronous Send**（同步发送）：发送一个消息，send() 方法返回一个 Future 对象，使用此对象的 get() 阻塞方法，可以根据 send() 方法是否执行成功来做出不同的业务处理。此方法关注消息是否成功到达，但是由于使用了同步发送，消息的发送速度会很低，即吞吐量降低。
-- **Asynchronous Send**（异步发送）：以回调函数的形式调用 send() 方法，当收到 broker 的响应，会触发回调函数执行。此方法既关注消息是否成功到达，又提高了消息的发送速度。
+- **Synchronous Send**（同步发送）：发送一个消息，send() 方法<u>返回一个 Future 对象</u>，使用此对象的 get() 阻塞方法，可以根据 send() 方法是否执行成功来做出不同的业务处理。此方法关注消息是否成功到达，但是由于<u>使用了同步发送，消息的发送速度会很低，即吞吐量降低</u>。
+- **Asynchronous Send**（异步发送）：<u>以回调函数的形式调用 send() 方法</u>，当收到 broker 的响应，会触发回调函数执行。此方法既关注消息是否成功到达，又提高了消息的发送速度。
+
+```java
+// 普通发送
+producer.send(record);
+
+// 同步发送
+Future<RecordMetadata> future = producer.send(record);
+RecordMetadata recordMetadata = future.get();
+
+// 异步方式，传入一个实现 Callback 接口的类对象
+producer.send(record,new DemoProducerCallback());
+```
+
+![img](.\java发送消息到kafka.png)
+
+- (0) ：创建 KafkaProducer 对象，此对象接收 Properties 类型的参数，配置了 `bootstrap.servers`、`key.serializer`、`value.serializer` 三个参数。
+- (1) ：接着创建了一个 ProducerRecord 对象，创建此对象时，<u>传入了 topic、消息的 key 和消息的 value 等参数</u>。然后使用(0)步骤中创建的 KafkaProducer 对象的 **send** 方法将消息发送了出去。
+- (2) ：消息发送出去之后，首先，KafkaProducer 对象会<u>对消息的 key 和 value 进行序列化</u>，序列化后的数据才可以通过网络传输。使用的序列化类就是我们配置的 key.serializer 和 value.serializer 两个参数的值所指向的类。
+- (3) ：接着，消息会发送到 partitioner，partitioner 负责将消息发送到 topic 的某个 partition。如果我们在创建 ProducerRecord 对象时声明了分区，那么 partitioner 会直接返回声明的分区。如果没有声明分区，partitioner 会选一个分区，通常会基于消息的 key 值做分区选择。一旦分区选定，producer 就知道了：消息要发送到哪个 topic 的哪个分区。
+- (4) ：接着，producer 会把发送到相同 topic，<u>相同 partition 的消息进行打包，形成 Batch</u>，后续消息，如果有相同的 topic 和 partition，都会添加到相应的 Batch 中。producer 会启动一个独立的线程，将这些打包的消息批量发送到对应的 kafka broker。
+- (5) ：当 broker 收到消息，会发回一个响应。
+- (6) ：如果消息成功写入 Kafka，会响应一个 RecordMetadata 对象到 Java Producer 程序，其中包括 topic、partition 和 offset 等信息。如果消息没有成功写 入 Kafka，将会响应一个错误 error。
+- (7) ：<u>当 producer 收到一个错误响应，producer 会尝试重发消息，当尝试次数达到配置的值时，仍未发送成功，此时会返回一个错误到 Java Producer 程序</u>。
+
+#### 三个参数详解
+
+- `bootstrap.servers`：kafka brokers 的 host：port 列表。此列表中不要求包含集群中所有的 brokers，producer 会根据连接上的 broker 查询到其他 broker。建议列表中至少包含两个 brokers，因为这样即使一个 broker 连接不上，可以连接另一个 broker，从而提高程序的健壮性。
+- `key.serializer`：消息 key 部分的序列化器。Producer 接口使用了泛型来定义 `key.serializer`，以此发送任何 Java 对象。代码中 `KafkaProducer<String, String>` 第一个 String 表示 `key.serializer` 是 String 类型的，第二个 String 表示 `value.serializer` 是 String 类型的。Producer 必须知道如何将这些 Java 对象转换为二进制数组 byte arrays，以用于网络传输。`key.serializer` 应该设置为一个全路径名的类，这个类实现了 `org.apache.kafka.common.serialization.Serializer` 接口，producer 使用这个类将 key 对象序列化为 byte array。Kafka 客户端包中有 `ByteArraySerializer`，`StringSerializer`，`IntegerSerializer` 三种类型的序列化器，如果发送常用类型的消息，不需要自定义序列化器。注意，即使发送只包含 value 的消息，也要设置 `key.serializer`。
+- `value.serializer`：消息 value 部分的序列化器。与 `key.serializer` 含义相同，其值可以与 `key.serializer` 相同，也可以不同。
+
+producer 更多参数的配置信息，参见[官方文档](http://kafka.apache.org/documentation/ )。
+
+
 
 
 

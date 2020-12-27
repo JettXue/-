@@ -1,4 +1,10 @@
-redis 主要内容分析
+[toc]
+
+
+
+
+
+# redis 主要内容分析
 
 1. 常见数据类型
 2. key 操作，db 操作
@@ -64,18 +70,9 @@ ttl：查询 key 剩余时间
 flushdb：清空当前数据库的所有 key
 flushall：清空所有数据库的所有 key
 
-key 过期
+**key 过期：**`expire key`
 
-```
-expire key
-```
-
-
-key 取消过期
-
-```
-persist key
-```
+**key 取消过期：**`persist key`
 
 两种设置密码的方式：
 
